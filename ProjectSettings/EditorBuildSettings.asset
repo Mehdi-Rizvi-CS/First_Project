@@ -6,8 +6,8 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Additional_Features/Menu/Scene/Main_Menu.unity
-    guid: d23e55244724faf4c9ce7d6a65a2acea
+    path: Assets/Scenes/Main Menu.unity
+    guid: 978927cd02567ab48afc810f79d8d178
   - enabled: 1
     path: Assets/Scenes/Mehdi Scene.unity
     guid: 1f0c4ee667e2ea94aabd559a756b2527
