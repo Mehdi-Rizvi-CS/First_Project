@@ -1,81 +1,212 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
-// Attach this script to your car GameObject.
-// Requires a Rigidbody component on the same GameObject.
 [RequireComponent(typeof(Rigidbody))]
 public class CarController : MonoBehaviour
 {
     [Header("Movement")]
-    public float moveSpeed = 12f;       // normal forward/backward speed
-    public float turnSpeed = 100f;      // degrees per second
+    public float accelerationForce = 25f;
+    public float reverseForce = 15f;
+    public float turnTorque = 8f;
+    public float maxSpeed = 20f;
+
+    [Header("Handling")]
+    public float sidewaysFriction = 5f;
+    public float angularDrag = 3f;
 
     [Header("Boost")]
-    public float boostMultiplier = 2f;  // how much faster during boost
-    public float boostDuration = 3f;    // boost lasts 3 seconds
-    public float boostCooldown = 5f;    // wait time before boosting again
+    public float boostMultiplier = 2f;
+    public float boostDuration = 3f;
+    public float boostCooldown = 5f;
 
     private Rigidbody rb;
+
     private bool isBoosting = false;
     private bool canBoost = true;
+
     private float boostTimer = 0f;
     private float cooldownTimer = 0f;
+
+    private float verticalInput;
+    private float horizontalInput;
 
     void Start()
     {
         rb = GetComponent<Rigidbody>();
+
+        rb.angularDamping = angularDrag;
     }
 
     void Update()
     {
+        HandleInput();
         HandleBoostInput();
+        HandleBoostTimers();
     }
 
     void FixedUpdate()
     {
         HandleMovement();
+        LimitSpeed();
+        ApplySidewaysFriction();
+    }
+
+    void HandleInput()
+    {
+        verticalInput = 0f;
+        horizontalInput = 0f;
+
+        if (Keyboard.current == null)
+            return;
+
+        // Forward
+        if (Keyboard.current.wKey.isPressed ||
+            Keyboard.current.upArrowKey.isPressed)
+        {
+            verticalInput = 1f;
+        }
+
+        // Reverse
+        if (Keyboard.current.sKey.isPressed ||
+            Keyboard.current.downArrowKey.isPressed)
+        {
+            verticalInput = -1f;
+        }
+
+        // Left
+        if (Keyboard.current.aKey.isPressed ||
+            Keyboard.current.leftArrowKey.isPressed)
+        {
+            horizontalInput = -1f;
+        }
+
+        // Right
+        if (Keyboard.current.dKey.isPressed ||
+            Keyboard.current.rightArrowKey.isPressed)
+        {
+            horizontalInput = 1f;
+        }
     }
 
     void HandleMovement()
     {
-        float vertical = Input.GetAxis("Vertical");   // W/S or Up/Down
-        float horizontal = Input.GetAxis("Horizontal"); // A/D or Left/Right
+        float boost = isBoosting ? boostMultiplier : 1f;
 
-        float currentSpeed = moveSpeed * (isBoosting ? boostMultiplier : 1f);
+        // FORWARD
+        if (verticalInput > 0f)
+        {
+            rb.AddForce(
+                transform.forward *
+                accelerationForce *
+                boost,
+                ForceMode.Acceleration
+            );
+        }
 
-        // Move forward/backward
-        Vector3 forwardMove = transform.forward * vertical * currentSpeed * Time.fixedDeltaTime;
-        rb.MovePosition(rb.position + forwardMove);
+        // REVERSE
+        if (verticalInput < 0f)
+        {
+            rb.AddForce(
+                -transform.forward *
+                reverseForce,
+                ForceMode.Acceleration
+            );
+        }
 
-        // Turn left/right (only while moving, like a real car)
-        float turn = horizontal * turnSpeed * Time.fixedDeltaTime;
-        Quaternion turnRotation = Quaternion.Euler(0f, turn, 0f);
-        rb.MoveRotation(rb.rotation * turnRotation);
+        // STEERING
+        float forwardVelocity =
+            Vector3.Dot(rb.linearVelocity, transform.forward);
+
+        if (Mathf.Abs(forwardVelocity) > 0.5f)
+        {
+            float direction = forwardVelocity >= 0f ? 1f : -1f;
+
+            rb.AddTorque(
+                Vector3.up *
+                horizontalInput *
+                turnTorque *
+                direction,
+                ForceMode.Acceleration
+            );
+        }
+    }
+
+    void LimitSpeed()
+    {
+        Vector3 horizontalVelocity =
+            new Vector3(
+                rb.linearVelocity.x,
+                0f,
+                rb.linearVelocity.z
+            );
+
+        float currentMaxSpeed =
+            maxSpeed * (isBoosting ? boostMultiplier : 1f);
+
+        if (horizontalVelocity.magnitude > currentMaxSpeed)
+        {
+            Vector3 limitedVelocity =
+                horizontalVelocity.normalized * currentMaxSpeed;
+
+            rb.linearVelocity =
+                new Vector3(
+                    limitedVelocity.x,
+                    rb.linearVelocity.y,
+                    limitedVelocity.z
+                );
+        }
+    }
+
+    void ApplySidewaysFriction()
+    {
+        Vector3 localVelocity =
+            transform.InverseTransformDirection(rb.linearVelocity);
+
+        localVelocity.x *=
+            Mathf.Clamp01(1f - sidewaysFriction * Time.fixedDeltaTime);
+
+        Vector3 newVelocity =
+            transform.TransformDirection(localVelocity);
+
+        rb.linearVelocity =
+            new Vector3(
+                newVelocity.x,
+                rb.linearVelocity.y,
+                newVelocity.z
+            );
     }
 
     void HandleBoostInput()
     {
-        // Start boost
-        if (Input.GetKeyDown(KeyCode.LeftShift) && canBoost && !isBoosting)
+        if (Keyboard.current == null)
+            return;
+
+        if (Keyboard.current.leftShiftKey.wasPressedThisFrame &&
+            canBoost &&
+            !isBoosting)
         {
             isBoosting = true;
             boostTimer = boostDuration;
             canBoost = false;
         }
+    }
 
-        // Count down boost duration
+    void HandleBoostTimers()
+    {
         if (isBoosting)
         {
             boostTimer -= Time.deltaTime;
+
             if (boostTimer <= 0f)
             {
                 isBoosting = false;
                 cooldownTimer = boostCooldown;
             }
         }
-        // Count down cooldown before boost is available again
         else if (!canBoost)
         {
             cooldownTimer -= Time.deltaTime;
+
             if (cooldownTimer <= 0f)
             {
                 canBoost = true;
